@@ -58,7 +58,7 @@ const log = (...a) => console.log(...a);
 
   // Exports
   await cat('Convert');
-  log('docx', await dl(() => tool('Word')));
+  log('docx', await dl(async () => { await tool('Word'); await page.locator('.modal .btn.primary').click(); }));
   log('txt', await dl(() => tool('Text')));
   log('csv', await dl(() => tool('Spreadsheet')));
   log('png', await dl(async () => { await tool('PNG'); await page.locator('.modal .btn.primary').click(); }));

@@ -38,6 +38,9 @@ interface Toast {
   kind?: 'error' | 'ok';
 }
 
+const OFFICE_ACCEPT = '.doc,.docx,.docm,.dotx,.rtf,.odt,.xls,.xlsx,.xlsm,.ods,.ppt,.pptx,.ppsx,.odp,.odg,.html,.htm,.vsdx,.pub';
+const OFFICE_RE = /\.(docx?|docm|dotx|rtf|odt|xlsx?|xlsm|ods|pptx?|ppsx|odp|odg|html?|vsdx|pub)$/i;
+
 const store = {
   get: (k: string, d = '') => {
     try {
@@ -290,7 +293,8 @@ export default function App() {
         return;
       }
       if (pdfs.length + images.length === files.length) return combineFlow(files);
-      toast('ANCHOR Tsunami opens PDF, PNG, JPEG and plain-text files.', 'error');
+      if (files.length === 1 && OFFICE_RE.test(files[0].name)) return officeFlow(files[0]);
+      toast('ANCHOR Tsunami opens PDF, PNG, JPEG, plain-text and (with a conversion server) Office files.', 'error');
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [openBytes, run, toast],
@@ -735,6 +739,57 @@ export default function App() {
     let [w, h] = PAGE_SIZES[String(r.size)];
     if (r.orient === 'l') [w, h] = [h, w];
     openBytes(await ops.blankDocument(Number(r.pages) || 1, [w, h]), 'Untitled.pdf');
+  }
+
+  /** Office documents to PDF through the user's own conversion server (LibreOffice, see server/). */
+  async function officeFlow(file?: File) {
+    let url = store.get('convertUrl');
+    let token = store.get('convertToken');
+    if (!url || !file) {
+      const r = await form({
+        title: 'Office file to PDF',
+        intro: (
+          <>
+            Word, Excel, PowerPoint and OpenDocument files are converted by a conversion server that you run yourself, so your files never go anywhere else. Start one with Docker or Node using the instructions in the <a href="https://github.com/TheCrayonLord/ANCHOR-Tsunami/tree/main/server" target="_blank" rel="noreferrer">server folder</a>, then enter its address here.
+          </>
+        ),
+        fields: [
+          { key: 'url', label: 'Conversion server address', type: 'text', placeholder: 'http://localhost:8787' },
+          { key: 'token', label: 'Access token (if the server has one)', type: 'password' },
+          ...(file ? [] : [{ key: 'file', label: 'File to convert', type: 'file' as const, accept: OFFICE_ACCEPT }]),
+        ],
+        initial: { url: url || 'http://localhost:8787', token },
+        validate: (x) => (!/^https?:\/\/.+/i.test(String(x.url).trim()) ? 'Enter an address starting with http:// or https://.' : !file && !x.file ? 'Choose a file to convert.' : null),
+        submit: 'Convert',
+      });
+      if (!r) return;
+      url = String(r.url).trim().replace(/\/+$/, '');
+      token = String(r.token || '');
+      store.set('convertUrl', url);
+      store.set('convertToken', token);
+      if (!file) file = r.file as File;
+    }
+    const f = file!;
+    const pdf = await run(`Converting ${f.name}`, async () => {
+      let res: Response;
+      try {
+        res = await fetch(`${url}/convert`, { method: 'POST', body: f, headers: { 'X-Filename': encodeURIComponent(f.name), ...(token ? { Authorization: `Bearer ${token}` } : {}) } });
+      } catch {
+        throw new Error(`could not reach the conversion server at ${url}. Check that it is running and allows this site (ALLOW_ORIGINS).`);
+      }
+      if (!res.ok) {
+        const msg = await res.json().then((j: { error?: string }) => j.error).catch(() => res.statusText);
+        throw new Error(msg || `server answered ${res.status}`);
+      }
+      return new Uint8Array(await res.arrayBuffer());
+    });
+    if (pdf) openBytes(pdf, `${tools.baseName(f.name)}.pdf`);
+  }
+
+  async function pickOffice() {
+    if (!store.get('convertUrl')) return officeFlow();
+    const [f] = await tools.pickFiles(OFFICE_ACCEPT);
+    if (f) officeFlow(f);
   }
 
   async function createFromText() {
@@ -1394,8 +1449,10 @@ export default function App() {
   }
 
   async function settingsFlow() {
-    const r = await form({ title: 'Preferences', fields: [{ key: 'author', label: 'Your name (shown on comments)', type: 'text' }, { key: 'theme', label: 'Theme', type: 'select', options: [{ value: 'light', label: 'Light' }, { value: 'dark', label: 'Dark' }] }], initial: { author, theme }, submit: 'Save' });
+    const r = await form({ title: 'Preferences', fields: [{ key: 'author', label: 'Your name (shown on comments)', type: 'text' }, { key: 'theme', label: 'Theme', type: 'select', options: [{ value: 'light', label: 'Light' }, { value: 'dark', label: 'Dark' }] }, { key: 'convertUrl', label: 'Conversion server for Office files (optional)', type: 'text', placeholder: 'http://localhost:8787' }, { key: 'convertToken', label: 'Conversion server token', type: 'password' }], initial: { author, theme, convertUrl: store.get('convertUrl'), convertToken: store.get('convertToken') }, submit: 'Save' });
     if (r) {
+      store.set('convertUrl', String(r.convertUrl || '').trim().replace(/\/+$/, ''));
+      store.set('convertToken', String(r.convertToken || ''));
       setAuthor(String(r.author) || 'Me');
       setTheme(r.theme as 'light' | 'dark');
     }
@@ -1605,6 +1662,7 @@ export default function App() {
         <span className="sep" />
         {A('fromimg', <Icons.Images size={S} />, 'Images → PDF', async () => openFiles(await tools.pickFiles('image/png,image/jpeg', true)))}
         {A('fromtxt', <Icons.FilePlus size={S} />, 'Text → PDF', createFromText)}
+        {A('fromoffice', <Icons.FileInput size={S} />, 'Office → PDF', pickOffice, 'Word, Excel or PowerPoint to PDF (uses your conversion server)')}
         {A('combine', <Icons.Combine size={S} />, 'Combine files', () => combineFlow())}
       </>
     ),
@@ -1875,7 +1933,7 @@ export default function App() {
           </div>
         </>
       ) : (
-        <Home onOpen={openDialog} onCombine={() => combineFlow()} onBlank={createBlank} onImages={async () => openFiles(await tools.pickFiles('image/png,image/jpeg', true))} onText={createFromText} />
+        <Home onOpen={openDialog} onCombine={() => combineFlow()} onBlank={createBlank} onImages={async () => openFiles(await tools.pickFiles('image/png,image/jpeg', true))} onText={createFromText} onOffice={pickOffice} />
       )}
 
       {dropping && (
@@ -1911,13 +1969,14 @@ export default function App() {
   );
 }
 
-function Home({ onOpen, onCombine, onBlank, onImages, onText }: { onOpen: () => void; onCombine: () => void; onBlank: () => void; onImages: () => void; onText: () => void }) {
+function Home({ onOpen, onCombine, onBlank, onImages, onText, onOffice }: { onOpen: () => void; onCombine: () => void; onBlank: () => void; onImages: () => void; onText: () => void; onOffice: () => void }) {
   const cards: [ReactNode, string, string, () => void][] = [
     [<Icons.FolderOpen size={22} />, 'Open a PDF', 'View, comment, edit, fill and sign', onOpen],
     [<Icons.Combine size={22} />, 'Combine files', 'Merge PDFs and images into one PDF', onCombine],
     [<Icons.Images size={22} />, 'Images to PDF', 'Turn photos or scans into a PDF', onImages],
     [<Icons.FilePlus2 size={22} />, 'Blank PDF', 'Start from empty pages', onBlank],
     [<Icons.FileType size={22} />, 'Text to PDF', 'Paste text and make a PDF', onText],
+    [<Icons.FileInput size={22} />, 'Office to PDF', 'Word, Excel or PowerPoint, with your conversion server', onOffice],
   ];
   return (
     <div className="home">

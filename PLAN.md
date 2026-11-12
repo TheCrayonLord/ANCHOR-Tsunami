@@ -62,7 +62,7 @@ Every change follows the same path: current bytes, then an operation in `src/lib
 ### Edit
 | Feature | Status | Notes |
 |---|---|---|
-| Edit existing text, one line at a time | Partial | Covers the original line and redraws it, matching size, weight and serif/sans/mono. Full paragraph reflow with the original embedded font is planned (3) |
+| Edit existing text by paragraph | Done | Click any text to edit its whole paragraph; it reflows as you type and keeps the original line breaks, spacing and alignment until you change it. Shift+click edits one line. Text is redrawn in a matching sans, serif or mono face rather than the file's own embedded font |
 | Add text | Done | Sans, serif or mono; bold and italic; size; colour |
 | Add images | Done | PNG and JPEG |
 | Whiteout | Done | |
@@ -73,7 +73,7 @@ Every change follows the same path: current bytes, then an operation in `src/lib
 | Bates numbering | Done | Prefix, start number, digit count |
 | Page background colour | Done | |
 | Crop pages | Done | |
-| Non-Latin text in added content | Planned (2) | Added text uses the standard 14 fonts, which cover Western European characters only. The fix is to embed a Unicode font |
+| Non-Latin text in added content | Done | Text, stamps, headers, footers and watermarks embed subset Noto fonts when needed: Cyrillic, Greek, Arabic and Hebrew (shaped, right to left), Devanagari, Thai, Chinese, Japanese, Korean and symbols |
 | Edit or replace existing images, move page objects | Planned (3) | |
 
 ### Organize pages
@@ -107,7 +107,7 @@ Every change follows the same path: current bytes, then an operation in `src/lib
 | Signature: draw (pressure), type (4 script fonts) or upload | Done | Saved on this device for reuse |
 | Initials | Done | |
 | Date, checkmark, cross, dot | Done | |
-| Certificate-based digital signatures (PAdES / PKCS#7) | Planned (2) | Signing with a .p12/.pfx certificate and validating existing signatures |
+| Certificate-based digital signatures | Done | Sign with a .p12/.pfx digital ID (PKCS#7 detached, SHA-256), visible or invisible. Signatures are added as incremental updates, so earlier signatures stay valid. Verify shows signer, time, reason and whether the file changed after signing. Create a self-signed digital ID in the app. Not yet: trusted-certificate lists, revocation checks and timestamp servers |
 | Request signatures from others, track status | Planned (4) | Needs a server |
 
 ### Protect
@@ -125,13 +125,14 @@ Every change follows the same path: current bytes, then an operation in `src/lib
 ### Convert and export
 | Feature | Status | Notes |
 |---|---|---|
-| PDF to Word (.docx) | Partial | Paragraphs, headings by font size, page breaks. Tables, images and exact layout are not kept |
+| PDF to Word (.docx) | Done | Two layouts: flowing text (fonts, sizes, colours, bold/italic, alignment, indents, spacing, tables, images) or exact page layout (every paragraph and image positioned as on the page). Vector drawings such as lines and boxes are not carried over |
 | PDF to spreadsheet | Partial | CSV with columns found from horizontal gaps |
 | PDF to PNG or JPEG (72/150/300 dpi) | Done | |
 | PDF to HTML, PDF to text | Done | |
 | Images to PDF, text to PDF, blank PDF | Done | |
 | PDF to PowerPoint, Excel (.xlsx) with tables | Planned (3) | |
-| Word, Excel or PowerPoint to PDF; web page to PDF | Planned (4) | Needs a conversion server |
+| Word, Excel, PowerPoint and OpenDocument to PDF | Done | Uses a small conversion server you run yourself (LibreOffice, in `server/`, Docker or Node). Set its address once; Office files can then be opened or dropped straight into the app |
+| Web page to PDF | Planned (4) | |
 | PDF/A, PDF/X and PDF/UA output and preflight | Planned (4) | |
 
 ### Scan and OCR
@@ -158,11 +159,11 @@ Every change follows the same path: current bytes, then an operation in `src/lib
 ## Roadmap
 
 1. **Stage 1, done in this build.** Viewer, commenting, editing, organizing, forms, signing, redaction, security, conversion, OCR, compare, compress, accessibility check, PWA.
-2. **Stage 2.** Unicode font embedding for added text. Certificate digital signatures (sign and validate). Form calculation scripts. Tabs and recent files. Area and perimeter measurement. Split by bookmarks or size.
-3. **Stage 3.** True paragraph text editing with the original fonts. Moving and replacing page objects. Comment replies and status. FDF/XFDF. PowerPoint and Excel export with tables. Region-only redaction. OCR clean-up and camera scanning. Auto-tagging. Batch actions.
-4. **Stage 4, needs a server.** Office-to-PDF conversion. Send for signature with tracking. PDF/A and preflight. Certificate encryption. AI assistant. Desktop packaging (Tauri or Electron) for native file dialogs and printing.
+2. **Stage 2.** Done: Unicode text, certificate signatures, paragraph editing, layout-preserving Word export, Office to PDF via your own server. Still to do: form calculation scripts, tabs and recent files, area and perimeter measurement, split by bookmarks or size, signature timestamps and trust lists.
+3. **Stage 3.** Text editing with the file's own embedded fonts. Moving and replacing page objects. Comment replies and status. FDF/XFDF. PowerPoint and Excel export with tables. Region-only redaction. OCR clean-up and camera scanning. Auto-tagging. Batch actions.
+4. **Stage 4, needs a server.** Send for signature with tracking. PDF/A and preflight. Certificate encryption. AI assistant. Desktop packaging (Tauri or Electron) for native file dialogs and printing.
 
 ## Testing
 
-- `npx tsx tests/ops.test.ts`: engine tests for every document operation (24 checks).
-- `node tests/e2e2.cjs`, `node tests/e2e3.cjs`, `node tests/e2e-ocr.cjs`: browser tests against `npm run preview`. They cover comments, drawing, text editing, form filling, signing, watermark, page numbers, search, bookmarks, redaction, organize with undo, all exports, password protection, compare, properties, accessibility and offline OCR.
+- `npm test`: engine tests for every document operation, Unicode text in eight scripts, and certificate signing (sign, second signature, tamper detection; also checked with poppler's `pdfsig`).
+- `node tests/e2e2.cjs`, `e2e3.cjs`, `e2e-ocr.cjs`, `e2e-sign.cjs`, `e2e-para.cjs`, `e2e-docx.cjs`, `e2e-office.cjs` (needs the conversion server): browser tests against `npm run preview`. They cover comments, drawing, text editing, form filling, signing, watermark, page numbers, search, bookmarks, redaction, organize with undo, all exports, password protection, compare, properties, accessibility and offline OCR.
