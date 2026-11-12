@@ -228,3 +228,11 @@ export const PII_PATTERNS: Record<string, string> = {
   'Credit card numbers': '\\b(?:\\d[ -]?){13,16}\\b',
   Dates: '\\b\\d{1,2}[/.-]\\d{1,2}[/.-]\\d{2,4}\\b',
 };
+
+// Unicode fonts for text the engine adds are served with the app and fetched on first use.
+import { setFontLoader } from './typeset';
+setFontLoader(async (file) => {
+  const res = await fetch(`${base}fonts/${file}`);
+  if (!res.ok) throw new Error(`Could not load font ${file}`);
+  return new Uint8Array(await res.arrayBuffer());
+});

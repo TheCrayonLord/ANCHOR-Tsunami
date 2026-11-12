@@ -58,6 +58,7 @@ export interface OverlayItem {
   quads?: Rect[];
   /** Keep each line on one line (used when editing existing text). */
   nowrap?: boolean;
+  lineHeight?: number; // multiple of the font size
 }
 
 export interface DocMeta {

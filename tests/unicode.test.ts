@@ -1,0 +1,15 @@
+import * as ops from '../src/lib/ops';
+import { readFile } from 'node:fs/promises';
+import { writeFileSync } from 'node:fs';
+import assert from 'node:assert';
+ops.setFontLoader(async (f) => new Uint8Array(await readFile(`public/fonts/${f}`)));
+let b = await ops.blankDocument(1);
+const lines = ['Café → arrows ✓ and “quotes”', 'Привет, мир — Ελληνικά', 'שלום עולם', 'مرحبا بالعالم', 'नमस्ते दुनिया', 'สวัสดีชาวโลก', '你好，世界 こんにちは', '안녕하세요 세계'];
+b = await ops.applyItems(b, lines.map((t, i) => ({ id: 'u' + i, page: 0, kind: 'text', rect: { x: 60, y: 700 - i * 40, w: 480, h: 30 }, text: t, fontSize: 16, color: '#000000' })) as never);
+b = await ops.addHeaderFooter(b, { bottomCenter: 'Страница {page} / {pages}', fontSize: 10, color: '#333333', margin: 24 });
+b = await ops.addWatermark(b, { text: '機密 CONFIDENTIEL', fontSize: 50, color: '#cc0000', opacity: 0.2, rotation: 30 });
+b = await ops.applyItems(b, [{ id: 's1', page: 0, kind: 'stamp', rect: { x: 350, y: 80, w: 180, h: 50 }, text: 'Одобрено' }] as never);
+const t = await ops.textToPdf('Mixed: English, Русский, 日本語のテキスト and عربي.\nSecond paragraph.');
+writeFileSync('tests/out/unicode.pdf', b); writeFileSync('tests/out/unicode-text.pdf', t);
+assert.ok(b.length > 5000);
+console.log('ok - unicode text', b.length, 'bytes');

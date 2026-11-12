@@ -12,8 +12,6 @@ import {
   PDFDict,
   PDFRef,
   PDFPage,
-  PDFFont,
-  StandardFonts,
   rgb,
   degrees,
   PageSizes,
@@ -25,6 +23,8 @@ import {
   PDFOptionList,
 } from '@cantoo/pdf-lib';
 import type { DocMeta, OverlayItem, Rect } from './types';
+import { Typesetter, type TextStyle } from './typeset';
+export { setFontLoader } from './typeset';
 
 export type Bytes = Uint8Array;
 
@@ -55,28 +55,7 @@ function pdfText(s: string) {
   return /^[\x20-\x7e]*$/.test(s) ? PDFString.of(s) : PDFHexString.fromText(s);
 }
 
-function standardFont(item: Pick<OverlayItem, 'font' | 'bold' | 'italic'>): StandardFonts {
-  const f = item.font ?? 'Helvetica';
-  const b = !!item.bold;
-  const i = !!item.italic;
-  if (f === 'Times') return b && i ? StandardFonts.TimesRomanBoldItalic : b ? StandardFonts.TimesRomanBold : i ? StandardFonts.TimesRomanItalic : StandardFonts.TimesRoman;
-  if (f === 'Courier') return b && i ? StandardFonts.CourierBoldOblique : b ? StandardFonts.CourierBold : i ? StandardFonts.CourierOblique : StandardFonts.Courier;
-  return b && i ? StandardFonts.HelveticaBoldOblique : b ? StandardFonts.HelveticaBold : i ? StandardFonts.HelveticaOblique : StandardFonts.Helvetica;
-}
 
-/** Standard 14 fonts only cover WinAnsi; replace anything else so drawing never throws. */
-function winAnsiSafe(font: PDFFont, s: string) {
-  let out = '';
-  for (const ch of s) {
-    try {
-      font.encodeText(ch);
-      out += ch;
-    } catch {
-      out += '?';
-    }
-  }
-  return out;
-}
 
 // ---------------------------------------------------------------------------------------------
 // Pages
@@ -261,7 +240,7 @@ export async function blankDocument(pages = 1, size: [number, number] = PageSize
 /** Plain text to PDF with simple word wrap. */
 export async function textToPdf(text: string, opts: { fontSize?: number; size?: [number, number] } = {}) {
   const doc = await PDFDocument.create();
-  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const ts = new Typesetter(doc);
   const fs = opts.fontSize ?? 11;
   const [W, H] = opts.size ?? (PageSizes.Letter as [number, number]);
   const margin = 72;
@@ -269,32 +248,19 @@ export async function textToPdf(text: string, opts: { fontSize?: number; size?: 
   let page = doc.addPage([W, H]);
   let y = H - margin;
   for (const para of text.replace(/\r/g, '').split('\n')) {
-    const lines = wrap(font, winAnsiSafe(font, para), fs, W - margin * 2);
+    const lines = await ts.wrap(para, fs, W - margin * 2);
     for (const line of lines.length ? lines : ['']) {
       if (y < margin) {
         page = doc.addPage([W, H]);
         y = H - margin;
       }
-      page.drawText(line, { x: margin, y: y - fs, size: fs, font });
+      await ts.drawLine(page, line, { x: margin, y: y - fs, size: fs });
       y -= lh;
     }
   }
   return save(doc);
 }
 
-function wrap(font: PDFFont, text: string, size: number, maxWidth: number) {
-  const out: string[] = [];
-  let line = '';
-  for (const word of text.split(/(\s+)/)) {
-    const next = line + word;
-    if (font.widthOfTextAtSize(next, size) > maxWidth && line.trim()) {
-      out.push(line.trimEnd());
-      line = word.trimStart();
-    } else line = next;
-  }
-  if (line) out.push(line);
-  return out;
-}
 
 /** Crop pages by margins (pt) measured from the current crop box. */
 export async function cropPages(bytes: Bytes, indices: number[], m: { top: number; right: number; bottom: number; left: number }) {
@@ -417,11 +383,7 @@ function dataUrlBytes(dataUrl: string): { bytes: Bytes; type: string } {
 /** Write pending overlay items into the document. Redaction marks are skipped (see applyRedactions). */
 export async function applyItems(bytes: Bytes, items: OverlayItem[]) {
   const doc = await load(bytes);
-  const fontCache = new Map<string, PDFFont>();
-  const getFont = async (name: StandardFonts) => {
-    if (!fontCache.has(name)) fontCache.set(name, await doc.embedFont(name));
-    return fontCache.get(name)!;
-  };
+  const ts = new Typesetter(doc);
   let form: ReturnType<PDFDocument['getForm']> | null = null;
   const fieldNames = new Set<string>();
 
@@ -461,9 +423,9 @@ export async function applyItems(bytes: Bytes, items: OverlayItem[]) {
         const fonts: Record<string, PDFRef> = {};
         if (it.kind === 'measure') {
           ops += `\n${arrowHead(x1, y1, x2, y2, 5 + w * 2)} S\n${arrowHead(x2, y2, x1, y1, 5 + w * 2)} S`;
-          const f = await getFont(StandardFonts.Helvetica);
-          fonts.F1 = f.ref;
           const label = it.text ?? '';
+          const f = await ts.fontFor(label);
+          fonts.F1 = f.ref;
           const tw = f.widthOfTextAtSize(label, 9);
           const mx = (x1 + x2) / 2 - tw / 2;
           const my = (y1 + y2) / 2 + 4;
@@ -515,8 +477,8 @@ export async function applyItems(bytes: Bytes, items: OverlayItem[]) {
         break;
       }
       case 'stamp': {
-        const f = await getFont(StandardFonts.HelveticaBold);
-        const label = winAnsiSafe(f, (it.text ?? 'APPROVED').toUpperCase());
+        const label = (it.text ?? 'APPROVED').toUpperCase();
+        const f = await ts.fontFor(label, { bold: true });
         const size = Math.min(r.h * 0.5, (r.w - 16) / Math.max(1, f.widthOfTextAtSize(label, 1)));
         const tw = f.widthOfTextAtSize(label, size);
         const c = it.color ?? '#c0392b';
@@ -535,15 +497,16 @@ export async function applyItems(bytes: Bytes, items: OverlayItem[]) {
       case 'text': {
         if (!it.text?.trim() && !it.cover) break;
         if (it.cover) page.drawRectangle({ x: it.cover.x, y: it.cover.y, width: it.cover.w, height: it.cover.h, color: color(it.fill ?? '#ffffff') });
-        const f = await getFont(standardFont(it));
+        const st: TextStyle = { family: it.font, bold: it.bold, italic: it.italic };
         const size = it.fontSize ?? 12;
-        const lh = size * 1.2;
+        const lh = size * (it.lineHeight ?? 1.2);
         let y = r.y + r.h - size;
         for (const raw of (it.text ?? '').split('\n')) {
-          for (const line of (it.nowrap ? [winAnsiSafe(f, raw)] : wrap(f, winAnsiSafe(f, raw), size, Math.max(r.w, size))).concat(raw || it.nowrap ? [] : [''])) {
-            const tw = f.widthOfTextAtSize(line, size);
+          const lines = it.nowrap ? [raw] : await ts.wrap(raw, size, Math.max(r.w, size), st);
+          for (const line of lines.length ? lines : ['']) {
+            const tw = await ts.width(line, size, st);
             const x = it.align === 'center' ? r.x + (r.w - tw) / 2 : it.align === 'right' ? r.x + r.w - tw : r.x;
-            page.drawText(line, { x, y: y + size * 0.22, size, font: f, color: color(it.color), opacity: op });
+            await ts.drawLine(page, line, { x, y: y + size * 0.22, size, color: color(it.color), opacity: op }, st);
             y -= lh;
           }
         }
@@ -676,7 +639,7 @@ export interface PageRaster {
  */
 export async function replaceWithRasters(bytes: Bytes, rasters: PageRaster[], opts: { stripMetadata?: boolean } = {}) {
   const doc = await load(bytes);
-  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const ts = new Typesetter(doc);
   for (const r of rasters) {
     const page = doc.getPage(r.page);
     const box = page.getCropBox();
@@ -687,7 +650,7 @@ export async function replaceWithRasters(bytes: Bytes, rasters: PageRaster[], op
     page.setCropBox(box.x, box.y, box.width, box.height);
     const img = await doc.embedJpg(r.jpeg);
     page.drawImage(img, { x: box.x, y: box.y, width: box.width, height: box.height });
-    for (const t of r.invisibleText ?? []) drawInvisibleText(page, font, t.str, t.rect);
+    for (const t of r.invisibleText ?? []) await drawInvisibleText(page, ts, t.str, t.rect);
   }
   // Rebuild: only objects reachable from the pages are copied, so removed content is truly gone.
   const out = await PDFDocument.create();
@@ -710,21 +673,20 @@ function copyMeta(from: PDFDocument, to: PDFDocument) {
   to.setProducer('ANCHOR Tsunami');
 }
 
-function drawInvisibleText(page: PDFPage, font: PDFFont, str: string, rect: Rect) {
-  const s = winAnsiSafe(font, str);
-  if (!s.trim()) return;
-  const w1 = font.widthOfTextAtSize(s, 1);
+async function drawInvisibleText(page: PDFPage, ts: Typesetter, str: string, rect: Rect) {
+  if (!str.trim()) return;
+  const w1 = await ts.width(str, 1);
   const size = Math.max(1, Math.min(rect.h * 0.9, w1 > 0 ? rect.w / w1 : rect.h));
-  page.drawText(s, { x: rect.x, y: rect.y + rect.h * 0.15, size, font, opacity: 0 });
+  await ts.drawLine(page, str, { x: rect.x, y: rect.y + rect.h * 0.15, size, opacity: 0 });
 }
 
 /** Add an invisible, searchable text layer (from OCR) on top of existing pages. */
 export async function addTextLayer(bytes: Bytes, pages: { page: number; words: { str: string; rect: Rect }[] }[]) {
   const doc = await load(bytes);
-  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const ts = new Typesetter(doc);
   for (const p of pages) {
     const page = doc.getPage(p.page);
-    for (const w of p.words) drawInvisibleText(page, font, w.str, w.rect);
+    for (const w of p.words) await drawInvisibleText(page, ts, w.str, w.rect);
   }
   return save(doc);
 }
@@ -772,7 +734,7 @@ export interface WatermarkOpts {
 
 export async function addWatermark(bytes: Bytes, o: WatermarkOpts) {
   const doc = await load(bytes);
-  const font = await doc.embedFont(StandardFonts.HelveticaBold);
+  const ts = new Typesetter(doc);
   const img = o.imageDataUrl
     ? await (async () => {
         const { bytes: d, type } = dataUrlBytes(o.imageDataUrl!);
@@ -794,19 +756,15 @@ export async function addWatermark(bytes: Bytes, o: WatermarkOpts) {
       const dy = -h / 2;
       page.drawImage(img, { x: cx + dx * Math.cos(rad) - dy * Math.sin(rad), y: cy + dx * Math.sin(rad) + dy * Math.cos(rad), width: w, height: h, rotate: degrees(rot), opacity: o.opacity });
     } else if (o.text) {
-      const t = winAnsiSafe(font, o.text);
-      const tw = font.widthOfTextAtSize(t, o.fontSize);
+      const tw = await ts.width(o.text, o.fontSize, { bold: true });
       const dx = -tw / 2;
       const dy = -o.fontSize * 0.35;
-      page.drawText(t, {
-        x: cx + dx * Math.cos(rad) - dy * Math.sin(rad),
-        y: cy + dx * Math.sin(rad) + dy * Math.cos(rad),
-        size: o.fontSize,
-        font,
-        color: color(o.color),
-        opacity: o.opacity,
-        rotate: degrees(rot),
-      });
+      await ts.drawLine(
+        page,
+        o.text,
+        { x: cx + dx * Math.cos(rad) - dy * Math.sin(rad), y: cy + dx * Math.sin(rad) + dy * Math.cos(rad), size: o.fontSize, color: color(o.color), opacity: o.opacity, rotate: rot },
+        { bold: true },
+      );
     }
     if (o.behind) moveLastContentToBack(page);
   }
@@ -845,11 +803,11 @@ export interface HeaderFooterOpts {
 
 export async function addHeaderFooter(bytes: Bytes, o: HeaderFooterOpts) {
   const doc = await load(bytes);
-  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const ts = new Typesetter(doc);
   const total = doc.getPageCount();
   const date = new Date().toLocaleDateString();
   const idx = o.pages ?? doc.getPageIndices();
-  idx.forEach((i, k) => {
+  for (const [k, i] of idx.entries()) {
     const page = doc.getPage(i);
     const box = page.getCropBox();
     const rot = page.getRotation().angle;
@@ -873,15 +831,15 @@ export async function addHeaderFooter(bytes: Bytes, o: HeaderFooterOpts) {
       [o.bottomRight, 'r', 'b'],
     ];
     for (const [tpl, h, v] of slots) {
-      const s = winAnsiSafe(font, fill(tpl));
+      const s = fill(tpl);
       if (!s) continue;
-      const tw = font.widthOfTextAtSize(s, o.fontSize);
+      const tw = await ts.width(s, o.fontSize);
       const vx = h === 'l' ? o.margin : h === 'c' ? (vw - tw) / 2 : vw - o.margin - tw;
       const vy = v === 't' ? vh - o.margin - o.fontSize * 0.8 : o.margin;
       const [x, y] = visualToUser(vx, vy, box, rot);
-      page.drawText(s, { x, y, size: o.fontSize, font, color: color(o.color), rotate: degrees(rot) });
+      await ts.drawLine(page, s, { x, y, size: o.fontSize, color: color(o.color), rotate: rot });
     }
-  });
+  }
   return save(doc);
 }
 

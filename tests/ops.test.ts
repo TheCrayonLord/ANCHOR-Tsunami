@@ -1,5 +1,7 @@
 import * as ops from '../src/lib/ops';
 import { PDFDocument } from '@cantoo/pdf-lib';
+import { readFile } from 'node:fs/promises';
+ops.setFontLoader(async (f) => new Uint8Array(await readFile(`public/fonts/${f}`)));
 import assert from 'node:assert';
 const ok = (m: string) => console.log('ok -', m);
 let b = await ops.blankDocument(3);

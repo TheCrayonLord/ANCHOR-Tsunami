@@ -14,6 +14,7 @@ export type ItemTool =
   | 'edittext'
   | 'image'
   | 'sign'
+  | 'digisig'
   | 'stamp'
   | 'redact'
   | 'whiteout'
@@ -53,6 +54,7 @@ export interface OverlayContext {
   editingId: string | null;
   setEditing: (id: string | null) => void;
   askLink: () => Promise<{ url?: string; destPage?: number } | null>;
+  digitalSign: (page: number, rect: Rect) => void;
   toast: (msg: string) => void;
   passive: boolean; // a pdf.js editor tool is active
   presetText: string | null; // text placed by the next click of the Add text tool (e.g. today's date)
@@ -260,6 +262,9 @@ export function PageOverlay({ page, vp, items, ctx }: { page: number; vp: PageVi
         break;
       case 'whiteout':
         ctx.add({ ...base, kind: 'whiteout', rect: rectFor('whiteout'), fill: '#ffffff' });
+        break;
+      case 'digisig':
+        ctx.digitalSign(page, tiny ? boxAt(220, 60) : dragged);
         break;
       case 'link': {
         if (tiny) return ctx.toast('Drag a box over the area that should become a link.');

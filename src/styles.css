@@ -1584,3 +1584,13 @@ kbd {
     display: none;
   }
 }
+
+/* Digital signature list */
+.sig-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
+.sig-list li { border: 1px solid var(--border); border-left: 4px solid var(--muted, #888); border-radius: 8px; padding: 10px 12px; display: grid; gap: 4px; }
+.sig-list li.sig-valid { border-left-color: #1f9d6a; }
+.sig-list li.sig-modified, .sig-list li.sig-invalid { border-left-color: #d64545; }
+.sig-list .sig-head { display: flex; align-items: center; gap: 8px; }
+.sig-list li.sig-valid .sig-head svg { color: #1f9d6a; }
+.sig-list li.sig-modified .sig-head svg, .sig-list li.sig-invalid .sig-head svg { color: #d64545; }
+.sig-list .muted { color: var(--muted); font-size: 0.9em; }

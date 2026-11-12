@@ -11,6 +11,7 @@ import { Sidebar, type Panel } from './components/Sidebar';
 import { Organize } from './components/Organize';
 import { FormDialog, SignatureDialog, CombineDialog, CompareView, Modal, SHORTCUTS, type FormSpec, type Values } from './components/Dialogs';
 import { Logo } from './components/Logo';
+import type { SignatureInfo } from './lib/signing';
 
 type PjTool = 'pj-highlight' | 'pj-freetext' | 'pj-ink' | 'pj-image';
 type Tool = 'select' | 'hand' | PjTool | ItemTool;
@@ -255,6 +256,13 @@ export default function App() {
         setReadOnly(ro);
         setMode('view');
         setPage(1);
+        if (/\/ByteRange\s*\[/.test(new TextDecoder('latin1').decode(working.subarray(0, Math.min(working.length, 30_000_000)))))
+          void import('./lib/signing').then((m) => {
+            const list = m.verifySignatures(working);
+            if (!list.length) return;
+            const bad = list.filter((x) => x.integrity === 'modified' || x.integrity === 'invalid').length;
+            toast(bad ? `${bad} of ${list.length} digital signatures in this file are not valid. See Sign → Verify signatures.` : `This file has ${list.length} digital signature${list.length > 1 ? 's' : ''}. See Sign → Verify signatures.`, bad ? 'error' : undefined);
+          });
       } catch (e) {
         if ((e as Error)?.name !== 'PasswordException') toast(`Could not open ${name}: ${(e as Error).message}`, 'error');
       } finally {
@@ -567,6 +575,10 @@ export default function App() {
     editingId,
     setEditing: setEditingId,
     askLink,
+    digitalSign: (pg, rect) => {
+      setTool('select');
+      void digitalSignFlow(pg, rect);
+    },
     toast,
     passive: tool in PJ_MODE || tool === 'hand',
     presetText,
@@ -905,6 +917,132 @@ export default function App() {
     }
     setTool('sign');
     toast(`Click on the page to place your ${which}. Drag the corner to resize.`);
+  }
+
+  // Certificate signatures --------------------------------------------------------------------
+  const digitalId = useRef<{ name: string; bytes: Uint8Array } | null>(null);
+
+  function startDigitalSign() {
+    if (readOnly) return toast(readOnly, 'error');
+    setTool('digisig');
+    toast('Drag a box where the signature should appear, or click for a standard size.');
+  }
+
+  async function digitalSignFlow(pageIndex: number, rect: { x: number; y: number; w: number; h: number }) {
+    const signing = await import('./lib/signing');
+    const r = await form({
+      title: 'Sign with a certificate',
+      intro: (
+        <>
+          Signs the document with your digital ID (a .p12 or .pfx file). Anyone can then check who signed it and whether it changed afterwards.
+          {hasPending() ? ' Your unsaved changes are applied first.' : ''} <strong>Sign last:</strong> any edit made after signing breaks the signature.
+        </>
+      ),
+      fields: [
+        ...(digitalId.current ? [{ key: 'useLast', label: `Use ${digitalId.current.name}`, type: 'checkbox' as const }] : []),
+        { key: 'file', label: 'Digital ID file', type: 'file', accept: '.p12,.pfx,application/x-pkcs12', show: (x) => !x.useLast },
+        { key: 'password', label: 'Digital ID password', type: 'password' },
+        { key: 'reason', label: 'Reason (optional)', type: 'text', placeholder: 'I approve this document' },
+        { key: 'location', label: 'Location (optional)', type: 'text' },
+        ...(signature ? [{ key: 'image', label: 'Show my handwritten signature too', type: 'checkbox' as const }] : []),
+        { key: 'invisible', label: 'Invisible signature (no box on the page)', type: 'checkbox' },
+      ],
+      initial: { useLast: !!digitalId.current, image: !!signature, invisible: false },
+      validate: (x) => (!x.useLast && !x.file ? 'Choose your digital ID file, or create one under Sign → Create digital ID.' : null),
+      submit: 'Sign',
+    });
+    if (!r) return;
+    let idFile = digitalId.current;
+    if (!r.useLast && r.file instanceof File) idFile = { name: r.file.name, bytes: await tools.readFile(r.file) };
+    if (!idFile) return;
+    let id: Awaited<ReturnType<typeof signing.readDigitalId>>;
+    try {
+      id = signing.readDigitalId(idFile.bytes, String(r.password ?? ''));
+    } catch (e) {
+      const msg = (e as Error).message;
+      return toast(/mac|password|invalid/i.test(msg) ? 'That password does not open this digital ID.' : `Could not read the digital ID: ${msg}`, 'error');
+    }
+    digitalId.current = idFile;
+    if (id.validTo < new Date()) toast(`The certificate for ${id.name} expired on ${id.validTo.toLocaleDateString()}. The signature will show as made with an expired certificate.`, 'error');
+    const ok = await commit(`Digitally signed by ${id.name}`, (b) =>
+      signing.signPdf(b, id, {
+        page: pageIndex,
+        rect: r.invisible ? undefined : rect,
+        reason: String(r.reason || '') || undefined,
+        location: String(r.location || '') || undefined,
+        imageDataUrl: r.image && signature ? signature.dataUrl : undefined,
+      }),
+    );
+    if (ok) toast(`Signed by ${id.name}. Save the file now; further edits would break the signature.`, 'ok');
+  }
+
+  async function createDigitalIdFlow() {
+    const r = await form({
+      title: 'Create a digital ID',
+      intro: 'Makes a self-signed certificate and saves it as a password-protected .p12 file you can reuse in ANCHOR Tsunami and other PDF apps. Self-signed IDs prove the document has not changed, but readers must trust you directly; for legally recognised signatures use an ID from a certificate authority.',
+      fields: [
+        { key: 'name', label: 'Your name', type: 'text' },
+        { key: 'email', label: 'Email (optional)', type: 'text' },
+        { key: 'org', label: 'Organisation (optional)', type: 'text' },
+        { key: 'years', label: 'Valid for (years)', type: 'number', min: 1, max: 20 },
+        { key: 'password', label: 'Password', type: 'password' },
+        { key: 'confirm', label: 'Confirm password', type: 'password' },
+      ],
+      initial: { name: author === 'Me' ? '' : author, years: 5 },
+      validate: (x) => (!String(x.name).trim() ? 'Enter your name.' : String(x.password).length < 6 ? 'Use a password of at least 6 characters.' : x.password !== x.confirm ? 'The passwords do not match.' : null),
+      submit: 'Create and download',
+    });
+    if (!r) return;
+    const signing = await import('./lib/signing');
+    const bytes = await run('Creating digital ID', () =>
+      signing.createDigitalId({ name: String(r.name).trim(), email: String(r.email || '').trim() || undefined, organization: String(r.org || '').trim() || undefined, years: Number(r.years) || 5, password: String(r.password) }),
+    );
+    if (!bytes) return;
+    const fname = `${String(r.name).trim().replace(/[^\w.-]+/g, '_')}.p12`;
+    tools.download(bytes, fname, 'application/x-pkcs12');
+    digitalId.current = { name: fname, bytes };
+    toast(`Digital ID saved as ${fname}. Keep it and its password safe.`, 'ok');
+  }
+
+  async function verifyFlow() {
+    const b = bytesRef.current;
+    if (!b) return;
+    const signing = await import('./lib/signing');
+    const list: SignatureInfo[] = signing.verifySignatures(b);
+    const label: Record<SignatureInfo['integrity'], string> = {
+      valid: 'Valid: the signed content has not changed',
+      modified: 'Broken: the document was changed after signing',
+      invalid: 'Invalid: the signature does not match the certificate',
+      unknown: 'Could not be checked',
+    };
+    setDialog(
+      <Modal title="Digital signatures" onClose={() => setDialog(null)} wide>
+        {!list.length ? (
+          <p>This document has no digital signatures.</p>
+        ) : (
+          <ul className="sig-list">
+            {list.map((s, i) => (
+              <li key={i} className={`sig-${s.integrity}`}>
+                <div className="sig-head">
+                  {s.integrity === 'valid' ? <Icons.ShieldCheck size={20} /> : s.integrity === 'unknown' ? <Icons.ShieldQuestion size={20} /> : <Icons.ShieldAlert size={20} />}
+                  <strong>{s.signer}</strong>
+                  {s.email && <span className="muted">&lt;{s.email}&gt;</span>}
+                </div>
+                <div>{label[s.integrity]}</div>
+                {s.integrity === 'valid' && !s.coversWholeFile && <div className="muted">The document was changed after this signature (for example by a later signature or edit). The signed version is intact.</div>}
+                <div className="muted">
+                  {s.signedAt && <>Signed {s.signedAt.toLocaleString()}. </>}
+                  Issued by {s.issuer}
+                  {s.selfSigned ? ' (self-signed: the signer vouches for their own identity)' : ''}.{!s.certValidNow && ' The certificate is not valid today (expired or not yet valid).'}
+                </div>
+                {(s.reason || s.location) && <div className="muted">{[s.reason && `Reason: ${s.reason}`, s.location && `Location: ${s.location}`].filter(Boolean).join(' · ')}</div>}
+                {s.note && <div className="muted">{s.note}</div>}
+              </li>
+            ))}
+          </ul>
+        )}
+      </Modal>,
+    );
   }
 
   async function chooseImage() {
@@ -1412,6 +1550,11 @@ export default function App() {
         {A('ini', <Icons.CaseSensitive size={S} />, initials ? 'Place initials' : 'Create initials', () => signFlow('initials'))}
         {signature && A('resig', <Icons.Pencil size={S} />, 'Redo signature', () => signFlow('signature', true))}
         {A('date', <Icons.CalendarDays size={S} />, 'Add date', addDateText)}
+        <span className="sep" />
+        {A('digisig', <Icons.FileBadge size={S} />, 'Sign with certificate', startDigitalSign, 'Certificate-based digital signature (.p12 / .pfx)')}
+        {A('verify', <Icons.ShieldCheck size={S} />, 'Verify signatures', () => verifyFlow())}
+        {A('newid', <Icons.KeyRound size={S} />, 'Create digital ID', createDigitalIdFlow)}
+        <span className="sep" />
         {T('text', <Icons.Type size={S} />, 'Add text')}
         {A('check', <Icons.Check size={S} />, 'Checkmark', () => placeMark('check'))}
         {A('cross', <Icons.X size={S} />, 'Cross', () => placeMark('cross'))}
