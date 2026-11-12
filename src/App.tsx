@@ -275,35 +275,38 @@ export default function App() {
     [ask, toast],
   );
 
+  /** Turn any files into one PDF and open it. Several files are joined in the order given. */
+  const convertAndOpen = useCallback(
+    async (files: File[]) => {
+      const url = store.get('convertUrl');
+      const res = await run(files.length === 1 ? `Converting ${files[0].name}` : `Converting ${files.length} files`, async (progress) => {
+        const { convertManyToPdf } = await import('./lib/convert');
+        return convertManyToPdf(files, { server: url ? { url, token: store.get('convertToken') } : null, progress });
+      });
+      if (!res) return;
+      await openBytes(res.bytes, res.name);
+      res.notes.slice(0, 3).forEach((n) => toast(n));
+    },
+    [openBytes, run, toast],
+  );
+
   const openFiles = useCallback(
     async (files: File[]) => {
       if (!files.length) return;
-      const pdfs = files.filter((f) => f.type === 'application/pdf' || /\.pdf$/i.test(f.name));
-      const images = files.filter((f) => /image\/(png|jpe?g)/.test(f.type));
-      const texts = files.filter((f) => f.type.startsWith('text/') || /\.(txt|md|csv)$/i.test(f.name));
-      if (pdfs.length === 1 && files.length === 1) return openBytes(await tools.readFile(pdfs[0]), pdfs[0].name);
-      if (images.length === files.length) {
-        const b = await run('Creating PDF from images', async () => ops.imagesToPdf(await Promise.all(images.map(async (f) => ({ bytes: await tools.readFile(f), type: f.type })))));
-        if (b) openBytes(b, `${tools.baseName(images[0].name)}.pdf`);
-        return;
-      }
-      if (texts.length === 1 && files.length === 1) {
-        const b = await run('Creating PDF from text', async () => ops.textToPdf(await texts[0].text()));
-        if (b) openBytes(b, `${tools.baseName(texts[0].name)}.pdf`);
-        return;
-      }
-      if (pdfs.length + images.length === files.length) return combineFlow(files);
-      if (files.length === 1 && OFFICE_RE.test(files[0].name)) return officeFlow(files[0]);
-      toast('ANCHOR Tsunami opens PDF, PNG, JPEG, plain-text and (with a conversion server) Office files.', 'error');
+      const isPdf = (f: File) => f.type === 'application/pdf' || /\.pdf$/i.test(f.name);
+      if (files.length === 1 && isPdf(files[0])) return openBytes(await tools.readFile(files[0]), files[0].name);
+      // Several files: let the user set the order first.
+      if (files.length > 1) return combineFlow(files);
+      return convertAndOpen(files);
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [openBytes, run, toast],
+    [openBytes, convertAndOpen],
   );
 
   const openDialog = useCallback(async () => {
     if (window.showOpenFilePicker) {
       try {
-        const [h] = await window.showOpenFilePicker({ types: [{ description: 'PDF and images', accept: { 'application/pdf': ['.pdf'], 'image/*': ['.png', '.jpg', '.jpeg'], 'text/plain': ['.txt'] } }] });
+        const [h] = await window.showOpenFilePicker();
         const f = await h.getFile();
         if (f.type === 'application/pdf' || /\.pdf$/i.test(f.name)) return openBytes(await tools.readFile(f), f.name, h);
         return openFiles([f]);
@@ -311,7 +314,7 @@ export default function App() {
         if ((e as Error).name === 'AbortError') return;
       }
     }
-    openFiles(await tools.pickFiles('application/pdf,image/png,image/jpeg,text/plain', true));
+    openFiles(await tools.pickFiles('', true));
   }, [openBytes, openFiles]);
 
   // Committing edits ----------------------------------------------------------------------------
@@ -720,8 +723,7 @@ export default function App() {
   async function combineFlow(initial: File[] = []) {
     const files = await new Promise<File[] | null>((resolve) => setDialog(<CombineDialog initial={initial} onDone={(f) => { setDialog(null); resolve(f); }} />));
     if (!files?.length) return;
-    const b = await run('Combining files', async () => ops.combine(await Promise.all(files.map(async (f) => ({ bytes: await tools.readFile(f), type: f.type || (/\.pdf$/i.test(f.name) ? 'application/pdf' : 'image/png') })))));
-    if (b) openBytes(b, files.length > 1 ? 'Combined.pdf' : files[0].name);
+    await convertAndOpen(files);
   }
 
   async function createBlank() {
@@ -1496,6 +1498,7 @@ export default function App() {
   // Expose a small API for automated tests.
   useEffect(() => {
     window.__anchor = {
+      convert: async (files: File[]) => (await import("./lib/convert")).convertManyToPdf(files, {}),
       annots: async (b: Uint8Array) => {
         const d = await loadPlain(b);
         const out: string[] = [];
@@ -1660,7 +1663,7 @@ export default function App() {
         {A('html', <Icons.Code2 size={S} />, 'HTML', () => exportFlow('html'))}
         {A('txt', <Icons.FileType size={S} />, 'Text', () => exportFlow('txt'))}
         <span className="sep" />
-        {A('fromimg', <Icons.Images size={S} />, 'Images → PDF', async () => openFiles(await tools.pickFiles('image/png,image/jpeg', true)))}
+        {A('fromany', <Icons.FileUp size={S} />, 'Any file → PDF', async () => openFiles(await tools.pickFiles('', true)), 'Documents, spreadsheets, slides, images, web pages, email, text, ZIP folders and more')}
         {A('fromtxt', <Icons.FilePlus size={S} />, 'Text → PDF', createFromText)}
         {A('fromoffice', <Icons.FileInput size={S} />, 'Office → PDF', pickOffice, 'Word, Excel or PowerPoint to PDF (uses your conversion server)')}
         {A('combine', <Icons.Combine size={S} />, 'Combine files', () => combineFlow())}
@@ -1933,7 +1936,7 @@ export default function App() {
           </div>
         </>
       ) : (
-        <Home onOpen={openDialog} onCombine={() => combineFlow()} onBlank={createBlank} onImages={async () => openFiles(await tools.pickFiles('image/png,image/jpeg', true))} onText={createFromText} onOffice={pickOffice} />
+        <Home onOpen={openDialog} onCombine={() => combineFlow()} onBlank={createBlank} onImages={async () => openFiles(await tools.pickFiles('', true))} onText={createFromText} onOffice={pickOffice} />
       )}
 
       {dropping && (
@@ -1971,12 +1974,12 @@ export default function App() {
 
 function Home({ onOpen, onCombine, onBlank, onImages, onText, onOffice }: { onOpen: () => void; onCombine: () => void; onBlank: () => void; onImages: () => void; onText: () => void; onOffice: () => void }) {
   const cards: [ReactNode, string, string, () => void][] = [
-    [<Icons.FolderOpen size={22} />, 'Open a PDF', 'View, comment, edit, fill and sign', onOpen],
-    [<Icons.Combine size={22} />, 'Combine files', 'Merge PDFs and images into one PDF', onCombine],
-    [<Icons.Images size={22} />, 'Images to PDF', 'Turn photos or scans into a PDF', onImages],
+    [<Icons.FolderOpen size={22} />, 'Open a file', 'PDFs open as they are; anything else is converted to PDF', onOpen],
+    [<Icons.Combine size={22} />, 'Combine files', 'Merge files of any type into one PDF', onCombine],
+    [<Icons.FileUp size={22} />, 'Any file to PDF', 'Word, Excel, PowerPoint, images, web pages, email, text, ZIP', onImages],
     [<Icons.FilePlus2 size={22} />, 'Blank PDF', 'Start from empty pages', onBlank],
     [<Icons.FileType size={22} />, 'Text to PDF', 'Paste text and make a PDF', onText],
-    [<Icons.FileInput size={22} />, 'Office to PDF', 'Word, Excel or PowerPoint, with your conversion server', onOffice],
+    [<Icons.FileInput size={22} />, 'Office to PDF (exact)', 'Exact Office layout, with your conversion server', onOffice],
   ];
   return (
     <div className="home">

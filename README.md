@@ -21,7 +21,7 @@ Unzip `anchor-tsunami-app.zip`, open a terminal in that folder, run `python3 -m 
 
 ### Office to PDF (optional server)
 
-Everything runs in the browser except turning Word, Excel and PowerPoint files into PDF, which needs an office engine. [`server/`](server/README.md) has a small LibreOffice-based conversion server (Docker or plain Node). Run it, then enter its address under **Convert → Office to PDF** or in Preferences.
+Any file can be turned into a PDF in the browser, with simplified layout for Office files. For exact Office layout an office engine is needed. [`server/`](server/README.md) has a small LibreOffice-based conversion server (Docker or plain Node). Run it, then enter its address under **Convert → Office to PDF** or in Preferences.
 
 ## Layout
 
@@ -32,6 +32,7 @@ Everything runs in the browser except turning Word, Excel and PowerPoint files i
 - `src/lib/signing.ts`: certificate signatures (sign, verify, create a digital ID).
 - `src/lib/paragraph.ts`: groups page text into lines and paragraphs for paragraph editing.
 - `src/lib/docx.ts`: PDF to Word with flowing or exact layout.
+- `src/lib/convert.ts`, `richpdf.ts`, `pptx.ts`: any file to PDF (format converters and the layout engine they share).
 - `server/`: optional Office-to-PDF conversion server.
 - `src/components/`: viewer, page overlay tools, sidebar, organize grid, dialogs.
 - `src/App.tsx`: app state, commands and the ribbon UI.

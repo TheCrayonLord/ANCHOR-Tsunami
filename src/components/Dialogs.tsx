@@ -351,7 +351,7 @@ function trimCanvas(c: HTMLCanvasElement) {
 export function CombineDialog({ initial, onDone }: { initial: File[]; onDone: (files: File[] | null) => void }) {
   const [files, setFiles] = useState<File[]>(initial);
   const [dragIdx, setDragIdx] = useState<number | null>(null);
-  const add = (list: FileList | null) => list && setFiles((f) => [...f, ...[...list].filter((x) => /pdf|png|jpe?g/i.test(x.type))]);
+  const add = (list: FileList | null) => list && setFiles((f) => [...f, ...[...list]]);
   return (
     <Modal
       title="Combine files"
@@ -360,7 +360,7 @@ export function CombineDialog({ initial, onDone }: { initial: File[]; onDone: (f
         <>
           <label className="btn ghost">
             Add files…
-            <input type="file" multiple accept="application/pdf,image/png,image/jpeg" hidden onChange={(e) => add(e.target.files)} />
+            <input type="file" multiple hidden onChange={(e) => add(e.target.files)} />
           </label>
           <button className="btn primary" disabled={files.length < 1} onClick={() => onDone(files)}>
             Combine {files.length} file{files.length === 1 ? '' : 's'}
@@ -368,7 +368,7 @@ export function CombineDialog({ initial, onDone }: { initial: File[]; onDone: (f
         </>
       }
     >
-      <p className="muted">Drag to set the order. PDFs and images (PNG, JPEG) are supported.</p>
+      <p className="muted">Drag to set the order. Any file type works: files that are not PDFs are converted first.</p>
       <ul className="combine-list" onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); if (e.dataTransfer.files.length) add(e.dataTransfer.files); }}>
         {files.map((f, i) => (
           <li

@@ -1,5 +1,5 @@
 // ANCHOR Tsunami service worker: offline support with a stale-while-revalidate cache.
-const CACHE = 'anchor-tsunami-v2';
+const CACHE = 'anchor-tsunami-v3';
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(['./', './index.html', './manifest.webmanifest', './icon.svg'])).then(() => self.skipWaiting()));
 });

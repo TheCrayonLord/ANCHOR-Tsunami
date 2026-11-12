@@ -130,6 +130,7 @@ Every change follows the same path: current bytes, then an operation in `src/lib
 | PDF to PNG or JPEG (72/150/300 dpi) | Done | |
 | PDF to HTML, PDF to text | Done | |
 | Images to PDF, text to PDF, blank PDF | Done | |
+| Any file to PDF | Done | Open, drop or combine files of any type. Converted in the browser as real text: Word (.docx, and .doc as text), Excel and CSV, PowerPoint (.pptx), OpenDocument, RTF, web pages, Markdown, EPUB, email (.eml, with its attachments), JSON, code and plain text. Images: PNG, JPEG, GIF, WebP, BMP, SVG, AVIF, TIFF, HEIC. ZIP archives are converted file by file. Anything with no page view (audio, video, programs, unknown formats) becomes a cover page with the original file attached. The built-in Office converters keep content and simplify layout; themes, charts and SmartArt are not drawn. For exact Office layout use the conversion server |
 | PDF to PowerPoint, Excel (.xlsx) with tables | Planned (3) | |
 | Word, Excel, PowerPoint and OpenDocument to PDF | Done | Uses a small conversion server you run yourself (LibreOffice, in `server/`, Docker or Node). Set its address once; Office files can then be opened or dropped straight into the app |
 | Web page to PDF | Planned (4) | |
