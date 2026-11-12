@@ -76,4 +76,5 @@ export interface TextRun {
   fontSize: number;
   fontName?: string;
   family?: string; // CSS font family for measuring
+  color?: string; // hex fill colour, when known
 }

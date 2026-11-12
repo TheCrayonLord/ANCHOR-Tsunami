@@ -1308,7 +1308,27 @@ export default function App() {
       const r = await form({ title: `Export as ${format.toUpperCase()}`, fields: [{ key: 'dpi', label: 'Resolution', type: 'select', options: [{ value: '72', label: '72 dpi (screen)' }, { value: '150', label: '150 dpi' }, { value: '300', label: '300 dpi (print)' }] }, pagesField()], initial: { dpi: '150' }, submit: 'Export' });
       if (!r) return;
       await run('Exporting images', (p) => tools.exportImages(current, name, format, Number(r.dpi), parsePages(r) ?? allPages(), p));
-    } else if (format === 'docx') await run('Exporting to Word', (p) => tools.exportDocx(current, name, p));
+    } else if (format === 'docx') {
+      const r = await form({
+        title: 'Export to Word',
+        fields: [
+          {
+            key: 'layout',
+            label: 'Layout',
+            type: 'select',
+            options: [
+              { value: 'flow', label: 'Flowing text (easiest to edit)' },
+              { value: 'exact', label: 'Exact page layout (looks like the PDF)' },
+            ],
+            help: 'Flowing text keeps fonts, sizes, alignment, tables and images in normal Word paragraphs. Exact layout places every paragraph and image where it is on the page.',
+          },
+        ],
+        initial: { layout: 'flow' },
+        submit: 'Export',
+      });
+      if (!r) return;
+      await run('Exporting to Word', (p) => tools.exportDocx(current, name, p, r.layout as 'flow' | 'exact'));
+    }
     else if (format === 'xlsx') await run('Exporting table data', () => tools.exportExcelCsv(current, name));
     else if (format === 'html') await run('Exporting to HTML', (p) => tools.exportHtml(current, name, p));
     else await run('Exporting text', () => tools.exportText(current, name));

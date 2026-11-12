@@ -31,7 +31,8 @@ const baselineOf = (r: TextRun) => r.rect.y + r.rect.h * (0.22 / 1.18);
 /** Merge runs that share a baseline into lines, top to bottom. */
 export function toLines(runs: TextRun[]): Line[] {
   const rows: { baseline: number; size: number; runs: TextRun[] }[] = [];
-  const sorted = runs.filter((r) => r.str.length).sort((a, b) => baselineOf(b) - baselineOf(a) || a.rect.x - b.rect.x);
+  // Whitespace-only runs are dropped: pdf.js uses them to bridge column gaps, and spaces are re-inserted from the gaps.
+  const sorted = runs.filter((r) => r.str.trim().length).sort((a, b) => baselineOf(b) - baselineOf(a) || a.rect.x - b.rect.x);
   for (const r of sorted) {
     const b = baselineOf(r);
     const row = rows.find((x) => Math.abs(x.baseline - b) < Math.max(1.5, Math.min(x.size, r.fontSize) * 0.35));
