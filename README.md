@@ -15,7 +15,7 @@ npm run preview    # serve the production build at http://localhost:4173
 
 Unzip `anchor-tsunami-app.zip`, open a terminal in that folder, run `python3 -m http.server 8080`, then go to http://localhost:8080. The app needs to be served over http(s); opening `index.html` directly from disk will not work because browsers block its workers there.
 
-**Live app:** https://thecrayonlord.github.io/anchor-tsunami/ (deployed by GitHub Actions on every push to `main`).
+**Live app:** https://thecrayonlord.github.io/ANCHOR-Tsunami/ (deployed by GitHub Actions on every push to `main`).
 
 `dist/` is a static site. Host it anywhere (any static host, or open it from a local web server). Once it is open in Chrome or Edge, use **Install** in the address bar to get a desktop app that opens `.pdf` files.
 
