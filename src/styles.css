@@ -243,20 +243,23 @@ kbd {
 }
 .strip {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
+  flex-direction: column;
   background: var(--surface-2);
   border-top: 1px solid var(--border);
-  min-height: 58px;
-  overflow-x: auto;
 }
+/* Row 1: the tools. They never shrink or overlap; the row scrolls sideways when it is too long. */
 .strip-tools {
   display: flex;
   align-items: center;
   gap: 2px;
-  flex: 1;
-  min-width: 0;
+  padding: 6px 10px;
+  min-height: 58px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+}
+.strip-tools > * {
+  flex: none;
 }
 .tool {
   display: flex;
@@ -286,12 +289,19 @@ kbd {
   border-radius: 7px;
   background: var(--surface);
 }
+/* Row 2: colour, line and font settings for the current tool, on their own line. */
 .style-bar {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding-left: 10px;
-  border-left: 1px solid var(--border);
+  gap: 8px;
+  padding: 5px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  overflow-x: auto;
+  scrollbar-width: thin;
+  min-height: 40px;
+}
+.style-bar > * {
   flex: none;
 }
 .swatch input {
@@ -304,8 +314,8 @@ kbd {
   cursor: pointer;
 }
 .dot-btn {
-  width: 16px;
-  height: 16px;
+  width: 20px;
+  height: 20px;
   border-radius: 50%;
   border: 1px solid rgb(0 0 0 / 0.2);
   padding: 0;
@@ -1564,17 +1574,8 @@ kbd {
   .nav-group .muted {
     display: none;
   }
-  .style-bar {
-    position: fixed;
-    bottom: 10px;
-    left: 50%;
-    transform: translateX(-50%);
-    background: var(--surface);
-    padding: 6px 10px;
-    border-radius: 12px;
-    border: 1px solid var(--border);
-    box-shadow: var(--shadow);
-    z-index: 50;
+  .tool {
+    min-width: 52px;
   }
 }
 @media (max-width: 560px) {
