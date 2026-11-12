@@ -27,7 +27,6 @@ export interface Converted {
 
 const ext = (name: string) => (/\.([a-z0-9]+)$/i.exec(name)?.[1] ?? '').toLowerCase();
 const stem = (name: string) => name.replace(/\.[^.]+$/, '');
-const LETTER: [number, number] = [612, 792];
 const LANDSCAPE: [number, number] = [792, 612];
 
 const IMG_NATIVE = new Set(['png', 'jpg', 'jpeg', 'jpe', 'jfif']);
@@ -132,6 +131,7 @@ async function heicToJpeg(bytes: Uint8Array): Promise<Uint8Array[]> {
 // HTML to blocks
 // ---------------------------------------------------------------------------------------------
 
+type Style = Omit<Inline, 'text'>;
 type ImageResolver = (src: string) => Promise<{ bytes: Uint8Array; mime: string } | null>;
 
 function dataUrlBytes(src: string): { bytes: Uint8Array; mime: string } | null {
@@ -182,16 +182,16 @@ export async function htmlToBlocks(root: Element, resolveImage?: ImageResolver):
     cur = [];
     props = { ...props, bullet: undefined };
   };
-  const addText = (text: string, st: Inline) => {
+  const addText = (text: string, st: Style) => {
     if (!text) return;
     const last = cur[cur.length - 1];
     if (/^\s/.test(text) && (!last || /\s$/.test(last.text))) text = text.replace(/^\s+/, '');
     if (!text) return;
     cur.push({ ...st, text });
   };
-  const inlineText = (el: Element, st: Inline): Inline[] => {
+  const inlineText = (el: Element, st: Style): Inline[] => {
     const out: Inline[] = [];
-    const go = (n: Node, s: Inline) => {
+    const go = (n: Node, s: Style) => {
       if (n.nodeType === 3) {
         const t = (n.textContent ?? '').replace(/\s+/g, ' ');
         if (t) out.push({ ...s, text: t });
@@ -215,7 +215,7 @@ export async function htmlToBlocks(root: Element, resolveImage?: ImageResolver):
   const listStack: { ordered: boolean; n: number }[] = [];
   let images = 0;
 
-  async function walk(node: Node, st: Inline, pre = false): Promise<void> {
+  async function walk(node: Node, st: Style, pre = false): Promise<void> {
     if (node.nodeType === 3) {
       const t = node.textContent ?? '';
       addText(pre ? t : t.replace(/\s+/g, ' '), st);
@@ -227,7 +227,7 @@ export async function htmlToBlocks(root: Element, resolveImage?: ImageResolver):
     if (SKIP.has(tag)) return;
     if (el.hasAttribute('hidden') || /display\s*:\s*none/i.test(el.getAttribute('style') ?? '')) return;
     const style = el.getAttribute('style') ?? '';
-    let s: Inline = { ...st };
+    const s: Style = { ...st };
     const col = cssColor(/(?:^|;)\s*color\s*:\s*([^;]+)/i.exec(style)?.[1]) ?? cssColor(el.getAttribute('color'));
     if (col && col.toLowerCase() !== '#ffffff') s.color = col;
     if (/font-weight\s*:\s*(bold|[6-9]00)/i.test(style)) s.bold = true;

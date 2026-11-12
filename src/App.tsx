@@ -39,7 +39,6 @@ interface Toast {
 }
 
 const OFFICE_ACCEPT = '.doc,.docx,.docm,.dotx,.rtf,.odt,.xls,.xlsx,.xlsm,.ods,.ppt,.pptx,.ppsx,.odp,.odg,.html,.htm,.vsdx,.pub';
-const OFFICE_RE = /\.(docx?|docm|dotx|rtf|odt|xlsx?|xlsm|ods|pptx?|ppsx|odp|odg|html?|vsdx|pub)$/i;
 
 const store = {
   get: (k: string, d = '') => {
