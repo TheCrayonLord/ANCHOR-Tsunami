@@ -1,0 +1,12 @@
+{
+  "name": "ANCHOR Tsunami",
+  "short_name": "Tsunami",
+  "description": "The complete PDF workbench: view, comment, edit, organize, fill, sign, protect, convert and OCR.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0b1324",
+  "theme_color": "#0f2a5c",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }],
+  "file_handlers": [{ "action": "./", "accept": { "application/pdf": [".pdf"] } }]
+}

@@ -1,0 +1,24 @@
+const { chromium } = require('playwright');
+const fs = require('fs');
+(async () => {
+  const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium', args: ['--no-sandbox'] });
+  const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
+  page.on('console', (m) => console.log('console', m.type(), m.text().slice(0, 200)));
+  page.on('pageerror', (e) => console.log('pageerror', e.message));
+  await page.goto('http://localhost:4173/');
+  const b64 = fs.readFileSync('tests/out/sample.pdf').toString('base64');
+  await page.evaluate(async (b64) => { const bin = atob(b64); const u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); await window.__anchor.openBytes(u, 'sample.pdf'); }, b64);
+  await page.waitForSelector('.pdfViewer .page canvas'); await page.waitForTimeout(1000);
+  await page.locator('.strip .tool', { hasText: /^Draw$/ }).click();
+  await page.waitForTimeout(700);
+  console.log('editor layers', await page.locator('.annotationEditorLayer').count(), await page.evaluate(() => [...document.querySelectorAll('.annotationEditorLayer')].map(e => e.className + ' ' + getComputedStyle(e).pointerEvents).join(' | ')));
+  const pb = await page.locator('.pdfViewer .page').first().boundingBox();
+  console.log('top element', await page.evaluate(([x, y]) => { const e = document.elementFromPoint(x, y); return e.className + ' / ' + e.parentElement.className; }, [pb.x + 250, pb.y + 300]));
+  await page.mouse.move(pb.x + 200, pb.y + 300); await page.mouse.down(); await page.mouse.move(pb.x + 300, pb.y + 350, { steps: 10 }); await page.mouse.move(pb.x + 400, pb.y + 300, { steps: 10 }); await page.mouse.up();
+  await page.waitForTimeout(500);
+  await page.locator('.strip .tool', { hasText: /^Select$/ }).click();
+  await page.waitForTimeout(500);
+  console.log('storage size', await page.evaluate(async () => window.__anchor.annots(await window.__anchor.snapshot())));
+  await page.screenshot({ path: 'tests/out/s-ink2.png' });
+  await browser.close();
+})();
