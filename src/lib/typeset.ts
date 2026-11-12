@@ -218,3 +218,11 @@ export class Typesetter {
     return out;
   }
 }
+
+let measurer: Promise<Typesetter> | null = null;
+/** Width of each line as ANCHOR Tsunami will draw it, so re-wrapped paragraphs keep their line breaks. */
+export async function measureWidths(lines: string[], size: number, s: TextStyle = {}) {
+  measurer ??= PDFDocument.create().then((d) => new Typesetter(d));
+  const t = await measurer;
+  return Promise.all(lines.map((l) => t.width(l, size, s)));
+}

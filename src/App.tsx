@@ -1501,7 +1501,7 @@ export default function App() {
       <>
         {T('select', <Icons.MousePointer2 size={S} />, 'Select')}
         <span className="sep" />
-        {T('edittext', <Icons.TextCursorInput size={S} />, 'Edit text', 'Click a line of existing text to change it')}
+        {T('edittext', <Icons.TextCursorInput size={S} />, 'Edit text', 'Click existing text to edit its paragraph (Shift+click for one line)')}
         {T('text', <Icons.Type size={S} />, 'Add text', 'Add text to the page (T)')}
         {A('img', <Icons.ImagePlus size={S} />, 'Add image', chooseImage)}
         {T('pj-image', <Icons.ImageUp size={S} />, 'Image comment', 'Place an image as an annotation')}

@@ -2,6 +2,8 @@ import { useRef, useState, type PointerEvent as RPointerEvent } from 'react';
 import type { OverlayItem, Rect, TextRun, ItemKind, FieldType } from '../lib/types';
 import type { PageViewport } from './Viewer';
 import { charEdges } from '../lib/pdfjs';
+import { paragraphAt } from '../lib/paragraph';
+import { measureWidths } from '../lib/typeset';
 
 export type ItemTool =
   | 'rect'
@@ -104,6 +106,7 @@ export function PageOverlay({ page, vp, items, ctx }: { page: number; vp: PageVi
   };
   const active = !!ctx.tool && !ctx.passive;
 
+  const shiftDown = useRef(false);
   const onDown = (e: RPointerEvent) => {
     if (!active || e.button !== 0 || e.target !== hostRef.current) return;
     e.preventDefault();
@@ -111,6 +114,7 @@ export function PageOverlay({ page, vp, items, ctx }: { page: number; vp: PageVi
     ctx.select(null);
     ctx.setEditing(null);
     drag.current = { mode: 'create', ax: x, ay: y };
+    shiftDown.current = e.shiftKey;
     setDraft({ ax: x, ay: y, bx: x, by: y });
     hostRef.current!.setPointerCapture(e.pointerId);
   };
@@ -219,30 +223,57 @@ export function PageOverlay({ page, vp, items, ctx }: { page: number; vp: PageVi
       case 'edittext': {
         const [px, py] = vp.convertToPdfPoint(bx, by);
         const runs = await ctx.getRuns(page);
-        const hit = runs.find((r) => px >= r.rect.x - 1 && px <= r.rect.x + r.rect.w + 1 && py >= r.rect.y - 1 && py <= r.rect.y + r.rect.h + 1);
-        if (!hit) return ctx.toast('Click directly on a line of text to edit it.');
-        const fam = (hit.fontName ?? '').toLowerCase().replace(/^[a-z]{6}\+/, '');
+        const para = paragraphAt(runs, px, py);
+        if (!para) return ctx.toast('Click directly on existing text to edit it.');
+        const one = shiftDown.current || para.lines.length === 1;
+        const ln = para.lines.find((l) => px >= l.rect.x - 1 && px <= l.rect.x + l.rect.w + 1 && py >= l.rect.y - 1 && py <= l.rect.y + l.rect.h + 1) ?? para.lines[0];
+        const fam = (para.fontName ?? '').toLowerCase().replace(/^[a-z]{6}\+/, '');
         const font = /mono|courier|consol/.test(fam) ? 'Courier' : /times|roman|serif|georgia|garamond|cambria|minion|book/.test(fam) && !/sans|arial|helv/.test(fam) ? 'Times' : 'Helvetica';
         const bold = /bold|black|heavy|semibold|demi/.test(fam);
         const italic = /italic|oblique/.test(fam);
-        const cover = { x: hit.rect.x - 0.5, y: hit.rect.y - 0.5, w: hit.rect.w + 1, h: hit.rect.h + 1 };
-        const item: OverlayItem = {
-          ...base,
-          kind: 'text',
-          rect: { x: hit.rect.x, y: hit.rect.y, w: Math.max(hit.rect.w * 1.5 + 20, 60), h: hit.rect.h },
-          cover,
-          text: hit.str,
-          fontSize: Math.round(hit.fontSize * 10) / 10,
-          font,
-          bold,
-          italic,
-          nowrap: true,
-          color: '#000000',
-          opacity: 1,
-        };
+        const size = Math.round(para.size * 10) / 10;
+        if (!one) {
+          // Size the box so the unchanged paragraph wraps exactly where the original did.
+          const widths = await measureWidths(para.lines.map((l) => l.str.trim()), size, { family: font, bold, italic });
+          const w = Math.max(...widths) + 1;
+          const cx = para.cover.x + para.cover.w / 2;
+          const right = para.cover.x + para.cover.w - 0.5;
+          para.rect = { ...para.rect, w, x: para.align === 'center' ? cx - w / 2 : para.align === 'right' ? right - w : para.rect.x };
+        }
+        const item: OverlayItem = one
+          ? {
+              ...base,
+              kind: 'text',
+              rect: { x: ln.x, y: ln.baseline - ln.size * 0.22, w: Math.max(ln.rect.w * 1.5 + 20, 60), h: ln.size },
+              cover: { x: ln.rect.x - 0.5, y: ln.rect.y - 0.5, w: ln.rect.w + 1, h: ln.rect.h + 1 },
+              text: ln.str,
+              fontSize: size,
+              font,
+              bold,
+              italic,
+              nowrap: true,
+              color: '#000000',
+              opacity: 1,
+            }
+          : {
+              ...base,
+              kind: 'text',
+              rect: para.rect,
+              cover: para.cover,
+              text: para.text,
+              fontSize: size,
+              font,
+              bold,
+              italic,
+              align: para.align,
+              lineHeight: para.lineHeight,
+              color: '#000000',
+              opacity: 1,
+            };
         ctx.add(item);
         ctx.select(item.id);
         ctx.setEditing(item.id);
+        if (!one) ctx.toast(`Editing a ${para.lines.length}-line paragraph; it reflows as you type. Shift+click edits a single line.`);
         break;
       }
       case 'image':
@@ -454,7 +485,7 @@ function ItemView({ it, vp, ctx, onDrag }: { it: OverlayItem; vp: PageViewport; 
       const tstyle = {
         fontFamily,
         fontSize: (it.fontSize ?? 12) * z,
-        lineHeight: 1.2,
+        lineHeight: it.lineHeight ?? 1.2,
         color: it.color,
         fontWeight: it.bold ? 700 : 400,
         fontStyle: it.italic ? 'italic' : 'normal',
